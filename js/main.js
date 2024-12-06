@@ -1,131 +1,110 @@
-document.addEventListener('DOMContentLoaded', () => {
-    const uploadArea = document.getElementById('uploadArea');
+document.addEventListener('DOMContentLoaded', function() {
+    const dropZone = document.getElementById('dropZone');
     const fileInput = document.getElementById('fileInput');
-    const previewArea = document.getElementById('previewArea');
-    const originalImage = document.getElementById('originalImage');
-    const compressedImage = document.getElementById('compressedImage');
-    const originalSize = document.getElementById('originalSize');
-    const compressedSize = document.getElementById('compressedSize');
-    const quality = document.getElementById('quality');
+    const qualitySlider = document.getElementById('quality');
     const qualityValue = document.getElementById('qualityValue');
-    const downloadBtn = document.getElementById('downloadBtn');
-    const modal = document.getElementById('imageModal');
-    const modalImg = document.getElementById('modalImage');
-    const closeModal = document.querySelector('.close-modal');
+    const previewContainer = document.getElementById('previewContainer');
+    const downloadAllBtn = document.getElementById('downloadAll');
 
-    let originalFile = null;
+    // 压缩选项
+    const options = {
+        maxSizeMB: 1,
+        maxWidthOrHeight: 1920,
+        useWebWorker: true
+    };
 
-    // 上传区域点击事件
-    uploadArea.addEventListener('click', () => {
+    // 处理拖放
+    dropZone.addEventListener('dragover', (e) => {
+        e.preventDefault();
+        dropZone.classList.add('dragover');
+    });
+
+    dropZone.addEventListener('dragleave', () => {
+        dropZone.classList.remove('dragover');
+    });
+
+    dropZone.addEventListener('drop', (e) => {
+        e.preventDefault();
+        dropZone.classList.remove('dragover');
+        const files = e.dataTransfer.files;
+        handleFiles(files);
+    });
+
+    // 点击上传
+    dropZone.addEventListener('click', () => {
         fileInput.click();
     });
 
-    // 拖拽上传
-    uploadArea.addEventListener('dragover', (e) => {
-        e.preventDefault();
-        uploadArea.style.borderColor = '#007AFF';
-    });
-
-    uploadArea.addEventListener('dragleave', () => {
-        uploadArea.style.borderColor = '#ddd';
-    });
-
-    uploadArea.addEventListener('drop', (e) => {
-        e.preventDefault();
-        uploadArea.style.borderColor = '#ddd';
-        const file = e.dataTransfer.files[0];
-        if (file && file.type.startsWith('image/')) {
-            handleFile(file);
-        }
-    });
-
-    // 文件选择
     fileInput.addEventListener('change', (e) => {
-        const file = e.target.files[0];
-        if (file) {
-            handleFile(file);
-        }
+        handleFiles(e.target.files);
     });
 
     // 质量滑块
-    quality.addEventListener('input', () => {
-        qualityValue.textContent = quality.value + '%';
-        if (originalFile) {
-            compressImage(originalFile);
+    qualitySlider.addEventListener('input', (e) => {
+        qualityValue.textContent = `${e.target.value}%`;
+        options.quality = parseInt(e.target.value) / 100;
+    });
+
+    // 处理文件
+    async function handleFiles(files) {
+        previewContainer.innerHTML = '';
+        downloadAllBtn.disabled = false;
+        
+        for (const file of files) {
+            if (!file.type.startsWith('image/')) continue;
+
+            const div = document.createElement('div');
+            div.className = 'preview-item';
+
+            // 显示原始图片信息
+            div.innerHTML = `
+                <div class="original">
+                    <h4>原图</h4>
+                    <img src="${URL.createObjectURL(file)}" alt="原图">
+                    <p>大小: ${(file.size / 1024).toFixed(2)} KB</p>
+                </div>
+                <div class="compressed">
+                    <h4>压缩后</h4>
+                    <div class="loading">压缩中...</div>
+                </div>
+            `;
+
+            previewContainer.appendChild(div);
+
+            // 压缩图片
+            try {
+                const compressedFile = await imageCompression(file, {
+                    ...options,
+                    quality: parseInt(qualitySlider.value) / 100
+                });
+
+                const compressedDiv = div.querySelector('.compressed');
+                compressedDiv.innerHTML = `
+                    <img src="${URL.createObjectURL(compressedFile)}" alt="压缩后">
+                    <p>大小: ${(compressedFile.size / 1024).toFixed(2)} KB</p>
+                    <button class="download-single">下载</button>
+                `;
+
+                // 单个下载按钮事件
+                compressedDiv.querySelector('.download-single').addEventListener('click', () => {
+                    saveAs(compressedFile, `compressed_${file.name}`);
+                });
+            } catch (error) {
+                console.error('压缩失败:', error);
+                div.querySelector('.compressed').innerHTML = '<p class="error">压缩失败</p>';
+            }
         }
-    });
-
-    // 处理上传的文件
-    function handleFile(file) {
-        originalFile = file;
-        originalSize.textContent = formatFileSize(file.size);
-
-        const reader = new FileReader();
-        reader.onload = (e) => {
-            originalImage.src = e.target.result;
-            compressImage(file);
-            previewArea.hidden = false;
-        };
-        reader.readAsDataURL(file);
     }
 
-    // 压缩图片
-    function compressImage(file) {
-        const img = new Image();
-        img.src = URL.createObjectURL(file);
-        img.onload = () => {
-            const canvas = document.createElement('canvas');
-            const ctx = canvas.getContext('2d');
-
-            canvas.width = img.width;
-            canvas.height = img.height;
-            ctx.drawImage(img, 0, 0);
-
-            canvas.toBlob(
-                (blob) => {
-                    compressedImage.src = URL.createObjectURL(blob);
-                    compressedSize.textContent = formatFileSize(blob.size);
-                    
-                    downloadBtn.onclick = () => {
-                        const link = document.createElement('a');
-                        link.href = URL.createObjectURL(blob);
-                        link.download = `compressed_${file.name}`;
-                        link.click();
-                    };
-                },
-                file.type,
-                quality.value / 100
-            );
-        };
-    }
-
-    // 格式化文件大小
-    function formatFileSize(bytes) {
-        if (bytes === 0) return '0 Bytes';
-        const k = 1024;
-        const sizes = ['Bytes', 'KB', 'MB', 'GB'];
-        const i = Math.floor(Math.log(bytes) / Math.log(k));
-        return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
-    }
-
-    // 设置图片点击事件
-    originalImage.addEventListener('click', () => {
-        modal.style.display = "block";
-        modalImg.src = originalImage.src;
-    });
-
-    compressedImage.addEventListener('click', () => {
-        modal.style.display = "block";
-        modalImg.src = compressedImage.src;
-    });
-
-    // 关闭弹窗
-    closeModal.addEventListener('click', (e) => {
-        e.stopPropagation();
-        modal.style.display = "none";
-    });
-
-    modal.addEventListener('click', () => {
-        modal.style.display = "none";
+    // 下载所有压缩后的图片
+    downloadAllBtn.addEventListener('click', () => {
+        const compressedImages = previewContainer.querySelectorAll('.compressed img');
+        compressedImages.forEach((img, index) => {
+            fetch(img.src)
+                .then(res => res.blob())
+                .then(blob => {
+                    saveAs(blob, `compressed_${index + 1}.jpg`);
+                });
+        });
     });
 }); 
